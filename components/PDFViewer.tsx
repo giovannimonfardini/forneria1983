@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ChevronLeft, Download, ExternalLink, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ChevronLeft, Download, ExternalLink, X, ZoomIn, ZoomOut, Info } from 'lucide-react';
 
 interface PDFViewerProps {
   pdfPath: string;
@@ -15,6 +15,9 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
+  const [showTips, setShowTips] = useState(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Detecta se é mobile
@@ -26,13 +29,21 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
     window.addEventListener('resize', checkMobile);
 
     // Detecta fullscreen
-    document.addEventListener('fullscreenchange', () => {
+    const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
-    });
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    // Fecha dicas de uso automaticamente após 8 segundos
+    const tipsTimer = setTimeout(() => {
+      setShowTips(false);
+    }, 8000);
 
     return () => {
       window.removeEventListener('resize', checkMobile);
-      document.removeEventListener('fullscreenchange', () => {});
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      clearTimeout(tipsTimer);
     };
   }, []);
 
@@ -65,26 +76,61 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
     window.open(pdfPath, '_blank', 'noopener,noreferrer');
   };
 
+  // Função para navegar entre páginas (usando rolagem)
+  const scrollToPage = (direction: 'next' | 'prev') => {
+    if (!containerRef.current) return;
+
+    const scrollAmount = window.innerHeight * 0.8;
+    if (direction === 'next') {
+      containerRef.current.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+    } else {
+      containerRef.current.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  // Função para habilitar navegação no iframe
+  const handleIframeLoad = () => {
+    setIsLoading(false);
+    setHasError(false);
+
+    // Tenta injetar CSS para melhorar a experiência do PDF no iframe
+    try {
+      const iframe = iframeRef.current;
+      if (iframe && iframe.contentDocument) {
+        const style = iframe.contentDocument.createElement('style');
+        style.textContent = `
+          body {
+            margin: 0;
+            padding: 0;
+            overflow: auto !important;
+          }
+          embed, object {
+            width: 100% !important;
+            height: 100% !important;
+          }
+        `;
+        iframe.contentDocument.head.appendChild(style);
+      }
+    } catch (error) {
+      console.log('Não foi possível injetar CSS no iframe');
+    }
+  };
+
   // Função para gerar URL otimizada para mobile
   const getMobilePDFUrl = (url: string) => {
     // Para Google Drive
     if (url.includes('drive.google.com')) {
-      return url.replace('/view?usp=sharing', '/preview').replace('/view', '/preview');
+      const previewUrl = url.replace('/view?usp=sharing', '/preview').replace('/view', '/preview');
+      return previewUrl;
     }
 
-    // Para servidores comuns
+    // Para outros servidores, usa a URL diretamente
+    // Adiciona parâmetros para visualização melhor
     try {
       const urlObj = new URL(url);
-
-      // Parâmetros para visualização mobile otimizada
-      urlObj.searchParams.set('embed', 'true');
-      urlObj.searchParams.set('navpanes', '0');
       urlObj.searchParams.set('toolbar', '0');
-      urlObj.searchParams.set('statusbar', '0');
+      urlObj.searchParams.set('navpanes', '0');
       urlObj.searchParams.set('scrollbar', '0');
-      urlObj.searchParams.set('view', 'FitH');
-      urlObj.searchParams.set('zoom', 'page-width');
-
       return urlObj.toString();
     } catch {
       return url;
@@ -136,7 +182,7 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
         <div className="flex items-center gap-2 bg-zinc-900/90 backdrop-blur-md rounded-full p-2 shadow-2xl">
           <button
             onClick={handleZoomOut}
-            className="w-10 h-10 flex items-center justify-center text-white hover:bg-zinc-800 rounded-full transition-all active:scale-95"
+            className="w-10 h-10 flex items-center justify-center text-white hover:bg-zinc-800 rounded-full transition-all active:scale-95 disabled:opacity-50"
             disabled={zoom <= 0.5}
           >
             <ZoomOut className="w-5 h-5" />
@@ -144,14 +190,14 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
 
           <button
             onClick={resetZoom}
-            className="px-3 py-1 text-xs font-medium text-amber-400 hover:bg-zinc-800 rounded-full transition-all"
+            className="px-3 py-1 text-xs font-medium text-amber-400 hover:bg-zinc-800 rounded-full transition-all active:scale-95"
           >
             {Math.round(zoom * 100)}%
           </button>
 
           <button
             onClick={handleZoomIn}
-            className="w-10 h-10 flex items-center justify-center text-white hover:bg-zinc-800 rounded-full transition-all active:scale-95"
+            className="w-10 h-10 flex items-center justify-center text-white hover:bg-zinc-800 rounded-full transition-all active:scale-95 disabled:opacity-50"
             disabled={zoom >= 3}
           >
             <ZoomIn className="w-5 h-5" />
@@ -162,7 +208,7 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
         <button
           onClick={toggleFullscreen}
           className="w-14 h-14 flex items-center justify-center bg-amber-500 hover:bg-amber-400 text-zinc-900 rounded-full shadow-2xl shadow-amber-500/30 active:scale-95 transition-all"
-          title="Tela Cheia"
+          title={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
         >
           {isFullscreen ? (
             <X className="w-6 h-6" />
@@ -173,6 +219,26 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
           )}
         </button>
       </div>
+
+      {/* Botões de Navegação de Páginas */}
+      {!isFullscreen && !isLoading && !hasError && (
+        <div className="fixed left-4 right-4 bottom-24 z-30 flex justify-center gap-4">
+          <button
+            onClick={() => scrollToPage('prev')}
+            className="px-6 py-3 bg-zinc-900/80 backdrop-blur-md text-white rounded-full flex items-center gap-2 hover:bg-zinc-800 active:scale-95 transition-all shadow-lg"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            <span className="text-sm font-medium">Anterior</span>
+          </button>
+          <button
+            onClick={() => scrollToPage('next')}
+            className="px-6 py-3 bg-amber-500/90 backdrop-blur-md text-zinc-900 rounded-full flex items-center gap-2 hover:bg-amber-400 active:scale-95 transition-all shadow-lg shadow-amber-500/25"
+          >
+            <span className="text-sm font-medium">Próxima</span>
+            <ChevronLeft className="w-5 h-5 rotate-180" />
+          </button>
+        </div>
+      )}
 
       {/* Conteúdo Principal */}
       <main className="relative">
@@ -222,25 +288,27 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
           </div>
         )}
 
-        {/* Container do PDF com controles de zoom */}
-        <div className="w-full overflow-hidden bg-zinc-900">
-          <div
-            className="overflow-auto"
-            style={{
-              height: `calc(100vh - ${isMobile ? '68px' : '80px'})`,
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              transition: 'transform 0.3s ease',
-            }}
-          >
-            {/* Usando iframe com parâmetros otimizados para mobile */}
+        {/* Container do PDF */}
+        <div
+          ref={containerRef}
+          className="w-full overflow-auto bg-zinc-900 relative"
+          style={{
+            height: `calc(100vh - ${isMobile ? '68px' : '80px'})`,
+            touchAction: 'pan-y pinch-zoom',
+          }}
+        >
+          {/* Usando iframe para visualização do PDF */}
+          <div style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top center',
+            minHeight: '100%',
+            width: '100%',
+          }}>
             <iframe
+              ref={iframeRef}
               src={getMobilePDFUrl(pdfPath)}
-              className="w-full min-h-full"
-              onLoad={() => {
-                setIsLoading(false);
-                setHasError(false);
-              }}
+              className="w-full min-h-screen"
+              onLoad={handleIframeLoad}
               onError={() => {
                 setIsLoading(false);
                 setHasError(true);
@@ -250,35 +318,65 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
               loading="eager"
               sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
               style={{
+                border: 'none',
                 pointerEvents: 'auto',
               }}
             />
           </div>
         </div>
 
-        {/* Overlay de ajuda para mobile */}
-        {!isLoading && !hasError && isMobile && !isFullscreen && (
-          <div className="fixed bottom-20 left-4 right-4 z-30 animate-fade-in">
+        {/* Overlay de ajuda para mobile - AGORA COM BOTÃO FECHAR */}
+        {!isLoading && !hasError && isMobile && !isFullscreen && showTips && (
+          <div className="fixed bottom-24 left-4 right-4 z-30 animate-fade-in">
             <div className="bg-zinc-900/90 backdrop-blur-md rounded-xl p-4 border border-amber-500/20 shadow-2xl">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 flex items-center justify-center bg-amber-500/10 rounded-full flex-shrink-0">
-                  <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <Info className="w-4 h-4 text-amber-400" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-white text-sm font-medium mb-1">Dica de uso</p>
+                  <div className="flex justify-between items-start mb-1">
+                    <p className="text-white text-sm font-medium">Dica de uso</p>
+                    <button
+                      onClick={() => setShowTips(false)}
+                      className="text-zinc-400 hover:text-white transition-colors"
+                      title="Fechar"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                   <p className="text-zinc-400 text-xs">
-                    Toque com dois dedos para zoom ou use os botões flutuantes. Para melhor experiência, use o modo tela cheia.
+                    • Toque com dois dedos para zoom<br/>
+                    • Use os botões "Anterior" e "Próxima" para navegar<br/>
+                    • Para melhor experiência, use o modo tela cheia
                   </p>
                 </div>
-                <button
-                  onClick={() => {}}
-                  className="text-amber-400 hover:text-amber-300 text-xs font-medium"
-                >
-                  Entendi
-                </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Alternativa: usar object tag como fallback */}
+        {hasError && (
+          <div className="fixed inset-0 z-20 flex items-center justify-center p-4">
+            <div className="text-center">
+              <p className="text-amber-400 mb-4">Tentando carregar com visualizador alternativo...</p>
+              <object
+                data={pdfPath}
+                type="application/pdf"
+                className="w-full h-[80vh] rounded-lg"
+              >
+                <div className="text-zinc-400">
+                  Seu navegador não suporta visualização de PDFs.
+                  <a
+                    href={pdfPath}
+                    className="block mt-4 text-amber-400 underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Clique aqui para baixar
+                  </a>
+                </div>
+              </object>
             </div>
           </div>
         )}
@@ -294,6 +392,15 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
           >
             <X className="w-6 h-6" />
           </button>
+        </div>
+      )}
+
+      {/* Instruções para navegação por gestos */}
+      {!isLoading && !hasError && (
+        <div className="fixed bottom-4 left-0 right-0 z-10 pointer-events-none">
+          <p className="text-center text-zinc-500 text-xs animate-pulse">
+            Deslize para navegar • Pinça para zoom
+          </p>
         </div>
       )}
     </div>
