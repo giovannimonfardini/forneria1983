@@ -166,21 +166,6 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
           />
         )}
       </main>
-
-      {/* Dica mobile */}
-      {isMobile && !isLoading && (
-        <div className="fixed bottom-4 left-4 right-4 z-30">
-          <div className="bg-zinc-900/95 backdrop-blur-sm rounded-xl p-3 border border-zinc-800 flex items-center gap-3">
-            <div className="w-10 h-10 flex items-center justify-center bg-amber-500/10 rounded-full flex-shrink-0">
-              <FileText className="w-5 h-5 text-amber-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium">Dica</p>
-              <p className="text-zinc-400 text-xs">Use dois dedos para zoom ou baixe o PDF</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
