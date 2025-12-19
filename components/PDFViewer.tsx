@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Download, Maximize2, ExternalLink } from 'lucide-react';
+import { ChevronLeft, Download, Maximize2, ExternalLink, FileText } from 'lucide-react';
 
 interface PDFViewerProps {
   pdfPath: string;
@@ -13,9 +13,22 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
+
+    // Detecta se é mobile através do user agent e tela
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor;
+      const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+      const isSmallScreen = window.innerWidth < 768;
+      setIsMobile(isMobileUA || isSmallScreen);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   const openInNewTab = () => {
@@ -33,15 +46,22 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
     }
   };
 
-  // Gera URL com parâmetros para melhor visualização
-  const getPdfUrl = () => {
-    // Adiciona parâmetros para exibir o PDF em modo de visualização
-    const baseUrl = pdfPath;
-    // Para PDFs locais, adiciona parâmetros de visualização
-    if (!baseUrl.includes('?')) {
-      return `${baseUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
-    }
-    return baseUrl;
+  // Gera URL absoluta para o PDF
+  const getAbsolutePdfUrl = () => {
+    if (typeof window === 'undefined') return pdfPath;
+    if (pdfPath.startsWith('http')) return pdfPath;
+    return `${window.location.origin}${pdfPath}`;
+  };
+
+  // Usa Google Docs Viewer para mobile (funciona em todos os navegadores)
+  const getGoogleViewerUrl = () => {
+    const absoluteUrl = getAbsolutePdfUrl();
+    return `https://docs.google.com/viewer?url=${encodeURIComponent(absoluteUrl)}&embedded=true`;
+  };
+
+  // Gera URL com parâmetros para desktop
+  const getDesktopPdfUrl = () => {
+    return `${pdfPath}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`;
   };
 
   if (!isMounted) {
@@ -77,13 +97,15 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
 
             {/* Ações */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={toggleFullscreen}
-                className="flex items-center justify-center w-10 h-10 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-full transition-all"
-                title="Tela cheia"
-              >
-                <Maximize2 className="w-5 h-5" />
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={toggleFullscreen}
+                  className="flex items-center justify-center w-10 h-10 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-full transition-all"
+                  title="Tela cheia"
+                >
+                  <Maximize2 className="w-5 h-5" />
+                </button>
+              )}
 
               <button
                 onClick={openInNewTab}
@@ -121,16 +143,44 @@ export default function PDFViewer({ pdfPath, title, downloadName }: PDFViewerPro
           </div>
         )}
 
-        {/* PDF Viewer - iframe simples e confiável */}
-        <iframe
-          src={getPdfUrl()}
-          className="w-full border-0"
-          style={{ height: 'calc(100vh - 68px)' }}
-          onLoad={() => setIsLoading(false)}
-          title={title}
-          allow="fullscreen"
-        />
+        {/* PDF Viewer */}
+        {isMobile ? (
+          // Mobile: usa Google Docs Viewer
+          <iframe
+            src={getGoogleViewerUrl()}
+            className="w-full border-0"
+            style={{ height: 'calc(100vh - 68px)' }}
+            onLoad={() => setIsLoading(false)}
+            title={title}
+            allow="fullscreen"
+          />
+        ) : (
+          // Desktop: usa visualizador nativo do navegador
+          <iframe
+            src={getDesktopPdfUrl()}
+            className="w-full border-0"
+            style={{ height: 'calc(100vh - 68px)' }}
+            onLoad={() => setIsLoading(false)}
+            title={title}
+            allow="fullscreen"
+          />
+        )}
       </main>
+
+      {/* Dica mobile */}
+      {isMobile && !isLoading && (
+        <div className="fixed bottom-4 left-4 right-4 z-30">
+          <div className="bg-zinc-900/95 backdrop-blur-sm rounded-xl p-3 border border-zinc-800 flex items-center gap-3">
+            <div className="w-10 h-10 flex items-center justify-center bg-amber-500/10 rounded-full flex-shrink-0">
+              <FileText className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-medium">Dica</p>
+              <p className="text-zinc-400 text-xs">Use dois dedos para zoom ou baixe o PDF</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
